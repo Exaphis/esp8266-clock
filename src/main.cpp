@@ -5,9 +5,8 @@
 #include <ESP8266WiFi.h>
 #include <FastLED.h>
 #include <FastLED_NeoMatrix.h>
-#include <Timezone.h>
-#include <sntp.h>
-#include <time.h>
+#include <TZ.h>
+#include <coredecls.h>
 
 #include "clock_display.h"
 #include "secrets.h"
@@ -21,12 +20,6 @@
 #define PROGRESS_COLOR_1_PM (uint16_t)0x999A
 #define PROGRESS_COLOR_2_PM (uint16_t)0x4EFA
 
-#define NTP_SERVER_1 "pool.ntp.org"
-#define NTP_SERVER_2 "time.nist.gov"
-#define NTP_SERVER_3 "time.google.com"
-
-#define NTP_DEFAULT_UPDATE_INTERVAL (60 * 1000)
-
 #define MATRIX_WIDTH 32
 #define MATRIX_HEIGHT 8
 #define MATRIX_PIN D1
@@ -37,23 +30,36 @@ FastLED_NeoMatrix matrix(leds, MATRIX_WIDTH, MATRIX_HEIGHT,
                          NEO_MATRIX_BOTTOM + NEO_MATRIX_RIGHT + NEO_MATRIX_COLUMNS + NEO_MATRIX_ZIGZAG);
 ClockDisplay display(matrix);
 
-TimeChangeRule us_pdt = {"PDT", Second, Sun, Mar, 2, -420};  //UTC -7 hours
-TimeChangeRule us_pst = {"PST", First, Sun, Nov, 2, -480};   //UTC -8 hours
-Timezone us_pacific(us_pdt, us_pst);
+bool time_is_set = false;
 
-unsigned long last_ntp_update = 0;
-unsigned long ntp_update_interval = NTP_DEFAULT_UPDATE_INTERVAL;
+uint32_t sntp_update_delay_MS_rfc_not_less_than_15000() {
+    return 60 * 1000;  // 60s
+}
 
-void setup() {
-    Serial.begin(115200);
-    Serial.println();
+void sntp_time_set(bool from_sntp) {
+    if (from_sntp) {
+        Serial.println("Time set from SNTP!");
+        time_is_set = true;
+    }
+}
 
-    FastLED.addLeds<WS2812B, MATRIX_PIN, GRB>(leds, MATRIX_WIDTH * MATRIX_HEIGHT);
+void setup_ntp() {
+    Serial.print("Setting time using SNTP...");
+    unsigned long time_start_millis = millis();
 
-    matrix.fillScreen(0);
-    matrix.setBrightness(MATRIX_BRIGHTNESS);
-    FastLED.delay(2000);
+    settimeofday_cb(sntp_time_set);
+    configTime(TZ_America_Los_Angeles, "pool.ntp.org", "time.nist.gov", "time.windows.com");
 
+    while (!time_is_set) {
+        FastLED.delay(100);
+    }
+
+    Serial.print("took ");
+    Serial.print(millis() - time_start_millis);
+    Serial.println(" ms");
+}
+
+void setup_wifi() {
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
     Serial.print("Connecting");
@@ -82,7 +88,7 @@ void setup() {
 
         if ((wifi_status == WL_CONNECTED) || (wifi_status == WL_NO_SSID_AVAIL) ||
             (wifi_status == WL_CONNECT_FAILED) || (millis() >= maxTime))
-            break;  // exit this loop
+            break;
 
         FastLED.delay(100);
     }
@@ -96,27 +102,26 @@ void setup() {
     Serial.println(WiFi.localIP());
     Serial.print("RSSI: ");
     Serial.println(WiFi.RSSI());
+}
 
-    // ensure that NTP will update immediately on first loop
-    last_ntp_update = (unsigned long)-ntp_update_interval;
+void setup() {
+    Serial.begin(115200);
+    Serial.println();
+
+    FastLED.addLeds<WS2812B, MATRIX_PIN, GRB>(leds, MATRIX_WIDTH * MATRIX_HEIGHT);
+
+    matrix.fillScreen(0);
+    matrix.setBrightness(MATRIX_BRIGHTNESS);
+    FastLED.delay(2000);
+
+    setup_wifi();
+    setup_ntp();
 }
 
 void loop() {
-    // update local time from NTP if needed
-    if (last_ntp_update + ntp_update_interval < millis()) {
-        last_ntp_update = millis();
-
-        Serial.print("updating ntp... ");
-        configTime(0, 0, NTP_SERVER_1, NTP_SERVER_2, NTP_SERVER_3);
-        Serial.print("took ");
-        Serial.print(millis() - last_ntp_update);
-        Serial.println(" ms");
-
-        FastLED.delay(200);  // ntp takes time to update??
-    }
-
-    time_t local_time = us_pacific.toLocal(time(0));
-    display.drawTime(hour(local_time), minute(local_time));
+    time_t now = time(0);
+    struct tm *tm = localtime(&now);
+    display.drawTime(tm->tm_hour, tm->tm_min);
 
     FastLED.delay(200);
 }
