@@ -31,6 +31,9 @@
 #define MIN_BRIGHTNESS 4
 #define SMOOTHING_TIMES 10
 
+// #define DEBUG_DISPLAY
+// #define DEBUG_LIGHT_SENSOR
+
 uint8_t light_sensor_vals[SMOOTHING_TIMES];
 size_t light_sensor_val_index = 0;
 
@@ -135,8 +138,30 @@ void update_brightness() {
     Serial.print(avg_value);
     Serial.print(", brightness: ");
     Serial.println(brightness);
-    matrix.setBrightness(brightness);
 #endif
+
+    matrix.setBrightness(brightness);
+}
+
+void debug_display() {
+    matrix.fillScreen(0);
+    matrix.setBrightness(10);
+    int hour = 0;
+    int minute = 0;
+
+    for (int i = 0; i < 25 * 60; i++) {
+        display.drawTime(hour, minute);
+        minute += 1;
+        if (minute >= 60) {
+            minute = 0;
+            hour += 1;
+            if (hour >= 24) {
+                hour = 0;
+            }
+        }
+
+        FastLED.delay(25);
+    }
 }
 
 void setup() {
@@ -146,6 +171,10 @@ void setup() {
     Serial.println();
 
     FastLED.addLeds<WS2812B, MATRIX_PIN, GRB>(leds, MATRIX_WIDTH * MATRIX_HEIGHT);
+
+#ifdef DEBUG_DISPLAY
+    debug_display();
+#endif
 
     matrix.fillScreen(0);
     update_brightness();

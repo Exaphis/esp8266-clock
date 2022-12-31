@@ -1,7 +1,5 @@
 #pragma once
 
-#include <Arduino.h>
-
 void rgb565To888(int color, int* out_red, int* out_green, int* out_blue) {
     *out_red = (color & 0xF800) >> 11;
     *out_green = (color & 0x7E0) >> 5;

@@ -3,6 +3,8 @@
 #include "rgb_helper.h"
 
 #define BLACK (uint16_t)0
+#define SNAKE_LEN 5
+#define SNAKE_LOOPS 12
 
 void ClockDisplay::drawTime(int hour, int minute) {
     // save processing time if refresh is not needed
@@ -20,15 +22,33 @@ void ClockDisplay::drawTime(int hour, int minute) {
 
     float day_percent = (hour * 60 + minute) / (12.f * 60);
 
-    if (hour < 12 || (hour == 12 && minute == 0)) {  // AM
-        drawDayProgress(day_percent, PROGRESS_COLOR_AM_1, PROGRESS_COLOR_AM_2);
+    // draw day progress outline and update colors
+    if (hour < 12) {  // AM
+        top_color = PROGRESS_COLOR_AM_1;
+        bottom_color = PROGRESS_COLOR_AM_2;
+
+        drawDayProgress(day_percent, false);
     } else {  // PM
+        // draw AM colors at noon because we want to show the hole animation
+        // that will transition the AM colors to the PM colors
+        bool is_noon = hour == 12 && minute == 0;
+        if (is_noon) {
+            top_color = PROGRESS_COLOR_AM_1;
+            bottom_color = PROGRESS_COLOR_AM_2;
+            drawDayProgress(1, false);
+        }
+
+        top_color = PROGRESS_COLOR_PM_1;
+        bottom_color = PROGRESS_COLOR_PM_2;
+
         day_percent -= 1;
-        drawDayProgress(day_percent, PROGRESS_COLOR_PM_1, PROGRESS_COLOR_PM_2);
+        if (!is_noon) {
+            drawDayProgress(day_percent, true);
+        }
     }
 
     if (hour == 0 && minute == 0) {  // midnight
-        playSnakeAnimation(PROGRESS_COLOR_PM_2);
+        playSnakeAnimation();
     } else if (hour == 12 && minute == 0) {  // noon
         playHoleAnimation();
     }
@@ -38,23 +58,13 @@ void ClockDisplay::drawTime(int hour, int minute) {
     Serial.println(" ms");
 }
 
-void ClockDisplay::drawDayProgress(float progress, uint16_t src_color, uint16_t dst_color, int num_skipped_pixels) {
-    const int perimeter = (matrix.width() * 2) + (matrix.height() * 2) - 4;
-    int pixels_to_draw = round(perimeter * progress);
+void ClockDisplay::drawDayProgress(float progress, bool bottom_up) {
+    for (int i = 0; i < perimeter / 2; i++) {
+        float percent = (float)i / (perimeter / 2);
+        bool black = bottom_up ? percent <= progress : percent > progress;
 
-    int pixels_drawn = 0;
-    while (pixels_drawn++ < pixels_to_draw) {
-        // fade from 1 to 2 top to bottom middle, back from 2 to 1 otherwise
-        float percent = pixels_drawn / (perimeter / 2.f);
-        if (percent >= 1) {
-            percent = 2 - percent;
-        }
-
-        if (pixels_drawn > num_skipped_pixels) {
-            Coord pixel = getBorderPixel(pixels_drawn - 1);
-            uint16_t color = rgb565Fade(src_color, dst_color, percent);
-            matrix.drawPixel(pixel.c, pixel.r, color);
-        }
+        drawBorderPixel(i, black);
+        drawBorderPixel(perimeter - i - 1, black);
     }
 }
 
@@ -95,35 +105,39 @@ void ClockDisplay::printTime(int hour, int minute) {
     matrix.drawPixel(16, 5, TIME_COLOR);
 }
 
-void ClockDisplay::playSnakeAnimation(uint16_t color) {
-    // hacky way to play a snake animation around the screen
-    for (int i = 0; i < 12; i++) {
-        for (float progress = 0.f; progress < 1.f; progress += 0.01) {
-            drawDayProgress(progress, color, color, progress * 50);
-            if (progress >= 0.1f) {
-                drawDayProgress(progress - 0.1f, BLACK, BLACK, (progress - 0.1) * 50);
-            } else if (progress <= 0.1f) {
-                drawDayProgress(1.f - (0.1f - progress), BLACK, BLACK, 50);
-            }
-            FastLED.delay(10);
+void ClockDisplay::playSnakeAnimation() {
+    // snake animation around the perimeter of the screen
+    int snake_head_i = 0;
+
+    for (int i = 0; i < (SNAKE_LOOPS * perimeter) - SNAKE_LEN; i++) {
+        drawBorderPixel(snake_head_i);
+
+        int snake_tail_i = snake_head_i - SNAKE_LEN;
+        if (snake_tail_i < 0) {
+            snake_tail_i += perimeter;
         }
+        drawBorderPixel(snake_tail_i, true);
+
+        FastLED.delay(10);
+        snake_head_i = (snake_head_i + 1) % perimeter;
     }
 
-    for (float progress = 0.f; progress <= 0.1f; progress += 0.01) {
-        drawDayProgress(1.f - (0.1f - progress), BLACK, BLACK, 50);
+    // remove the snake tail
+    for (int i = SNAKE_LEN; i >= 0; i--) {
+        drawBorderPixel(perimeter - i - 1, true);
         FastLED.delay(10);
     }
 }
 
 void ClockDisplay::playHoleAnimation() {
-    // remove colors from filled border one by one randomly
-    const int perimeter = (matrix.width() * 2) + (matrix.height() * 2) - 4;
+    // draw colors in border, randomly, one by one
+    // used to switch from AM to PM
     int arr[perimeter];
     for (int i = 0; i < perimeter; i++) {
         arr[i] = i;
     }
 
-    // shuffle arr
+    // shuffle arr (Fisher-Yates shuffle)
     for (int i = 0; i < perimeter; i++) {
         int j = random(i, perimeter);
         int tmp = arr[i];
@@ -133,8 +147,7 @@ void ClockDisplay::playHoleAnimation() {
 
     for (int i = 0; i < perimeter; i++) {
         int pixel_index = arr[i];
-        Coord pixel = getBorderPixel(pixel_index);
-        matrix.drawPixel(pixel.c, pixel.r, BLACK);
+        drawBorderPixel(pixel_index);
         FastLED.delay(500);
     }
 }
@@ -174,4 +187,10 @@ Coord ClockDisplay::getBorderPixel(int index) {
     } else {
         return {-1, -1};
     }
+}
+
+void ClockDisplay::drawBorderPixel(int i, bool black) {
+    Coord pixel = getBorderPixel(i);
+    uint16_t color = black ? BLACK : rgb565Fade(top_color, bottom_color, (float)(i + 1) / perimeter);
+    matrix.drawPixel(pixel.c, pixel.r, color);
 }
