@@ -23,7 +23,16 @@
 #define MATRIX_WIDTH 32
 #define MATRIX_HEIGHT 8
 #define MATRIX_PIN D1
-#define MATRIX_BRIGHTNESS 10
+
+#define LIGHT_SENSOR_PIN A0
+#define MAX_LIGHT_SENSOR_VALUE 21
+#define MIN_LIGHT_SENSOR_VALUE 4
+#define MAX_BRIGHTNESS 25
+#define MIN_BRIGHTNESS 4
+#define SMOOTHING_TIMES 10
+
+uint8_t light_sensor_vals[SMOOTHING_TIMES];
+size_t light_sensor_val_index = 0;
 
 CRGB leds[MATRIX_WIDTH * MATRIX_HEIGHT];
 FastLED_NeoMatrix matrix(leds, MATRIX_WIDTH, MATRIX_HEIGHT,
@@ -68,9 +77,9 @@ void setup_wifi() {
     int loading_y = 0;
 
     // http://mathertel.blogspot.com/2018/10/robust-esp8266-network-connects.html
-    // wait max. 30 seconds for connecting
+    // wait max. 3 mins for connecting
     wl_status_t wifi_status;
-    unsigned long maxTime = millis() + (30 * 1000);
+    unsigned long maxTime = millis() + (180 * 1000);
 
     while (true) {
         matrix.fillScreen(0);
@@ -95,6 +104,7 @@ void setup_wifi() {
     Serial.printf("(%d)\n", wifi_status);
 
     if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("Failed to connect to WiFi, restarting...");
         ESP.restart();
     }
 
@@ -104,14 +114,41 @@ void setup_wifi() {
     Serial.println(WiFi.RSSI());
 }
 
+void update_brightness() {
+    int light_sensor_value = max(min(analogRead(LIGHT_SENSOR_PIN), MAX_LIGHT_SENSOR_VALUE), MIN_LIGHT_SENSOR_VALUE);
+
+    light_sensor_vals[light_sensor_val_index] = light_sensor_value;
+    light_sensor_val_index = (light_sensor_val_index + 1) % SMOOTHING_TIMES;
+
+    float avg_value = 0;
+    for (size_t i = 0; i < SMOOTHING_TIMES; i++) {
+        avg_value += light_sensor_vals[i];
+    }
+    avg_value /= SMOOTHING_TIMES;
+
+    int brightness = map(avg_value, MIN_LIGHT_SENSOR_VALUE, MAX_LIGHT_SENSOR_VALUE, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+
+#ifdef DEBUG_LIGHT_SENSOR
+    Serial.print("light sensor value: ");
+    Serial.print(light_sensor_value);
+    Serial.print(", avg: ");
+    Serial.print(avg_value);
+    Serial.print(", brightness: ");
+    Serial.println(brightness);
+    matrix.setBrightness(brightness);
+#endif
+}
+
 void setup() {
+    pinMode(LIGHT_SENSOR_PIN, INPUT);
+
     Serial.begin(115200);
     Serial.println();
 
     FastLED.addLeds<WS2812B, MATRIX_PIN, GRB>(leds, MATRIX_WIDTH * MATRIX_HEIGHT);
 
     matrix.fillScreen(0);
-    matrix.setBrightness(MATRIX_BRIGHTNESS);
+    update_brightness();
     FastLED.delay(2000);
 
     setup_wifi();
@@ -123,5 +160,6 @@ void loop() {
     struct tm *tm = localtime(&now);
     display.drawTime(tm->tm_hour, tm->tm_min);
 
+    update_brightness();
     FastLED.delay(200);
 }
