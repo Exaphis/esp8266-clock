@@ -26,13 +26,13 @@
 
 #define LIGHT_SENSOR_PIN A0
 #define MAX_LIGHT_SENSOR_VALUE 21
-#define MIN_LIGHT_SENSOR_VALUE 4
+#define MIN_LIGHT_SENSOR_VALUE 8
 #define MAX_BRIGHTNESS 25
-#define MIN_BRIGHTNESS 4
+#define MIN_BRIGHTNESS 3
 #define SMOOTHING_TIMES 10
 
 // #define DEBUG_DISPLAY
-// #define DEBUG_LIGHT_SENSOR
+#define DEBUG_LIGHT_SENSOR
 
 uint8_t light_sensor_vals[SMOOTHING_TIMES];
 size_t light_sensor_val_index = 0;
@@ -129,17 +129,22 @@ void update_brightness() {
     }
     avg_value /= SMOOTHING_TIMES;
 
-    int brightness = map(avg_value, MIN_LIGHT_SENSOR_VALUE, MAX_LIGHT_SENSOR_VALUE, MIN_BRIGHTNESS, MAX_BRIGHTNESS);
+    // clamp to min because avg_value can be lower than min
+    avg_value = avg_value < MIN_LIGHT_SENSOR_VALUE ? MIN_LIGHT_SENSOR_VALUE : avg_value;
+
+    int brightness = map(pow(avg_value, 2), pow(MIN_LIGHT_SENSOR_VALUE, 2), pow(MAX_LIGHT_SENSOR_VALUE, 2), MIN_BRIGHTNESS, MAX_BRIGHTNESS);
 
 #ifdef DEBUG_LIGHT_SENSOR
     Serial.print("light sensor value: ");
     Serial.print(light_sensor_value);
     Serial.print(", avg: ");
-    Serial.print(avg_value);
+    Serial.print(pow(avg_value, 2));
     Serial.print(", brightness: ");
     Serial.println(brightness);
 #endif
 
+    // clamp it again to be safe
+    brightness = max(min(brightness, MAX_BRIGHTNESS), MIN_BRIGHTNESS);
     matrix.setBrightness(brightness);
 }
 

@@ -191,6 +191,12 @@ Coord ClockDisplay::getBorderPixel(int index) {
 
 void ClockDisplay::drawBorderPixel(int i, bool black) {
     Coord pixel = getBorderPixel(i);
-    uint16_t color = black ? BLACK : rgb565Fade(top_color, bottom_color, (float)(i + 1) / perimeter);
+
+    float percent = (float)(i + 1) / (perimeter / 2);
+    if (percent > 1) {
+        percent = 2 - percent;
+    }
+
+    uint16_t color = black ? BLACK : rgb565Fade(top_color, bottom_color, percent);
     matrix.drawPixel(pixel.c, pixel.r, color);
 }
